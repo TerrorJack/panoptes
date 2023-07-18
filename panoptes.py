@@ -10,7 +10,7 @@ def is_valid_compiler(path):
     We need to check compiler name, to rule out ghc invocations that
     compile c/c++
     """
-    valid_compilers = {"c++", "cc", "ccache", "clang", "clang++", "g++", "gcc"}
+    valid_compilers = {"c++", "cc", "clang", "clang++", "g++", "gcc"}
     return pathlib.Path(path).name in valid_compilers
 
 
@@ -41,18 +41,21 @@ def parse_entries(obj):
     Parse a deserialized events.jsonl line, return an iterable of
     compile_commands.json entry objects
     """
-    if not is_valid_compiler(obj["arguments"][0]):
+    arguments = obj["arguments"]
+    if pathlib.Path(arguments[0]).name == "ccache":
+        arguments.pop(0)
+    if not is_valid_compiler(arguments[0]):
         return []
-    if not any(arg == "-c" for arg in obj["arguments"][1:]):
+    if not any(arg == "-c" for arg in arguments[1:]):
         return []
     srcs = (
         canonicalize_path(obj["directory"], arg)
-        for arg in obj["arguments"][1:]
+        for arg in arguments[1:]
         if is_valid_source(arg)
     )
     return (
         {
-            "arguments": obj["arguments"],
+            "arguments": arguments,
             "directory": obj["directory"],
             "file": src,
         }
