@@ -10,7 +10,7 @@ def is_valid_compiler(path):
     We need to check compiler name, to rule out ghc invocations that
     compile c/c++
     """
-    valid_compilers = {"cc", "c++", "gcc", "g++", "clang", "clang++"}
+    valid_compilers = {"c++", "cc", "ccache", "clang", "clang++", "g++", "gcc"}
     return pathlib.Path(path).name in valid_compilers
 
 
@@ -18,7 +18,7 @@ def is_valid_source(arg):
     """
     Check for extensions
     """
-    valid_extensions = {".c", ".cpp"}
+    valid_extensions = {".c", ".c++", ".cc", ".cpp", ".cxx"}
     return pathlib.Path(arg).suffix in valid_extensions
 
 
@@ -36,27 +36,28 @@ def canonicalize_path(cwd, path):
         return None
 
 
-def parse_entry(obj):
+def parse_entries(obj):
     """
-    Parse a deserialized events.jsonl line, return a
-    compile_commands.json entry object if parsed successfully,
-    otherwise None
+    Parse a deserialized events.jsonl line, return an iterable of
+    compile_commands.json entry objects
     """
     if not is_valid_compiler(obj["arguments"][0]):
-        return
+        return []
     if not any(arg == "-c" for arg in obj["arguments"][1:]):
-        return
-    srcs = list(arg for arg in obj["arguments"][1:] if is_valid_source(arg))
-    if len(srcs) != 1:
-        return
-    src = canonicalize_path(obj["directory"], srcs[0])
-    if not src:
-        return
-    return {
-        "arguments": obj["arguments"],
-        "directory": obj["directory"],
-        "file": src,
-    }
+        return []
+    srcs = (
+        canonicalize_path(obj["directory"], arg)
+        for arg in obj["arguments"][1:]
+        if is_valid_source(arg)
+    )
+    return (
+        {
+            "arguments": obj["arguments"],
+            "directory": obj["directory"],
+            "file": src,
+        }
+        for src in filter(None, srcs)
+    )
 
 
 def update_compdb(update_func, compdb, obj):
@@ -75,12 +76,13 @@ def update_compdb(update_func, compdb, obj):
     hadrian that compile a same c/c++ source file with multiple
     different flavours and you want to work with a single flavour.
     """
-    entry = parse_entry(obj)
-    if not entry:
-        return
-    compdb[entry["file"]] = (
-        update_func(compdb[entry["file"]], entry) if entry["file"] in compdb else entry
-    )
+    entries = parse_entries(obj)
+    for entry in entries:
+        compdb[entry["file"]] = (
+            update_func(compdb[entry["file"]], entry)
+            if entry["file"] in compdb
+            else entry
+        )
 
 
 def update_func(prev_entry, curr_entry):
